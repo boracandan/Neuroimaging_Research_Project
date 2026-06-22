@@ -1,0 +1,17 @@
+*.npy
+trial_*/
+cache/
+*_experiment/
+MAHGCNExperiments/*/
+.claude/
+.vscode/
+BHRC_*/
+CCNP_*/
+HBN_*/
+NKI_*/
+PNC_*/
+Runs/
+**/results_table.csv
+**/test_results.csv
+Literature/
+.html
