@@ -25,14 +25,9 @@ class fMRINet(nn.Module):
 
 
     def forward(self, g_matrix, node_features=None):
-        batch_size = g_matrix.shape[0]
+        fea = node_features if node_features is not None else g_matrix
 
-        fea = node_features if node_features is not None else g_matrix  # default: FC profiles as node features
-
-        out = torch.zeros(batch_size, self.paranum, device='cuda')
-
-        for s in range(batch_size):
-            out[s, :] = self.GNN(g_matrix[s, :, :], fea[s, :, :])
+        out = self.GNN(g_matrix, fea)  # [B, output_dim]
 
         out = self.bn1(out)
         out = F.relu(out)
