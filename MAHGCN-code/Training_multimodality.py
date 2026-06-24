@@ -324,9 +324,9 @@ train_ages, val_ages, test_ages = normalize_ages(age_lookup, train_ids, validati
 
 # Cache: one .npy per modality + a subjects index JSON. Cache key includes roi_scale.
 # Always load from cache if present; build+save only when --save_fc_cache is passed.
-_cache_dir  = rf"{dir_path}/{args.experiment}/cache"
 _cache_key  = "_".join([config["fc_processing"], config["train_datasets"], config["test_datasets"],
                         config["modality"], str(config["roi_scale"])])
+_cache_dir  = rf"{dir_path}/{args.experiment}/cache" if os.path.exists(rf"{dir_path}/{args.experiment}/cache/{_cache_key}_subjects.json") else rf"{dir_path}/cache_gen/cache"
 _cache_subs = rf"{_cache_dir}/{_cache_key}_subjects.json"
 _modalities = ["fMRI", "sMRI"] if config["modality"] == "fMRI&sMRI" else ["fMRI"]
 _cache_npy  = {m: rf"{_cache_dir}/{_cache_key}_{m}.npy" for m in _modalities}
