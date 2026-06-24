@@ -7,6 +7,10 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--test_set", type=str, default=None, choices=["NKI", "CCNP", "HBN", "BHRC"],
                     help="LOO test set to run. Omit to run all trials in the hardcoded list.")
+parser.add_argument("--trial", type=str, nargs="+", default=None, choices=["gcn_fmri", "gcn_multi", "gat_fmri", "gat_multi"],
+                    help="Trial type(s) to run. Omit to run all four. E.g. --trial gcn_fmri gcn_multi")
+parser.add_argument("--degree_norm", action=argparse.BooleanOptionalAction, default=True,
+                    help="GCN only: degree normalization (default: on). GAT always ignores this.")
 args = parser.parse_args()
 
 dir_path = os.environ.get("CCIR_DIR", r"C:\Users\Faruk\Code\CCIR_Project")
@@ -1879,27 +1883,38 @@ _loo_splits = {
 if args.test_set is not None:
     train_ds, test_ds = _loo_splits[args.test_set]
     exp = f"LOO_{args.test_set}"
-    trials += generate_trials("trial_1", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
-        gcn_mode="gcn", modality="fMRI", train_datasets=train_ds, test_datasets=test_ds,
-        save_fc_cache=True, experiment=exp)
-    trials += generate_trials("trial_2", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
-        gcn_mode="gcn", modality="fMRI&sMRI", train_datasets=train_ds, test_datasets=test_ds,
-        experiment=exp)
-    trials += generate_trials("trial_3", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
-        gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI", degree_normalize=False,
-        train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
-    trials += generate_trials("trial_4", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
-        gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI&sMRI", degree_normalize=False,
-        train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
+    run_all = args.trial is None
+
+    if run_all or "gcn_fmri" in args.trial:
+        trials += generate_trials("trial_1", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+            gcn_mode="gcn", modality="fMRI", degree_normalize=args.degree_norm,
+            train_datasets=train_ds, test_datasets=test_ds, save_fc_cache=True, experiment=exp)
+    if run_all or "gcn_multi" in args.trial:
+        trials += generate_trials("trial_2", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+            gcn_mode="gcn", modality="fMRI&sMRI", degree_normalize=args.degree_norm,
+            train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
+    if run_all or "gat_fmri" in args.trial:
+        trials += generate_trials("trial_3", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+            gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI", degree_normalize=False,
+            train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
+    if run_all or "gat_multi" in args.trial:
+        trials += generate_trials("trial_4", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+            gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI&sMRI", degree_normalize=False,
+            train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
 
 times = defaultdict(list)
 
-for t in trials:
+total = len(trials)
+completed = 0
+print(f"\n=== Starting {total} trials ===\n", flush=True)
+
+for i, t in enumerate(trials):
     t = dict(t)
     script = t.pop("_script", "Training.py")
     trial_id     = t.get("trial_id", "")
     trial_prefix = trial_id.split(".")[0]
     if os.path.isdir(f"{dir_path}/{t.get('experiment', 'MAHGCNExperiments')}/{trial_id}"):
+        completed += 1
         continue
     cmd = ["python", "-u", script, "--use_args"]
     for k, v in t.items():
@@ -1909,8 +1924,11 @@ for t in trials:
             cmd += [f"--{k}", str(v)]
     t_start = time.time()
     subprocess.run(cmd, cwd=os.path.join(dir_path, "MAHGCN-code"))
+    elapsed = time.time() - t_start
+    completed += 1
     if trial_id:
-        times[trial_prefix].append(time.time() - t_start)
+        times[trial_prefix].append(elapsed)
+    print(f"[{completed}/{total}] ({100*completed/total:.1f}%) {trial_id} — {elapsed/60:.1f} min", flush=True)
 
 if times:
     for trial_id, times in times.items():
