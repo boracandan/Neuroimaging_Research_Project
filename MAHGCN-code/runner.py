@@ -2,6 +2,12 @@ import subprocess
 import time
 from collections import defaultdict
 import os
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--test_set", type=str, default=None, choices=["NKI", "CCNP", "HBN", "BHRC"],
+                    help="LOO test set to run. Omit to run all trials in the hardcoded list.")
+args = parser.parse_args()
 
 dir_path = os.environ.get("CCIR_DIR", r"C:\Users\Faruk\Code\CCIR_Project")
 
@@ -1855,11 +1861,36 @@ _fcs = ["per_10", "per_20", "per_50"]
 #     gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI", degree_normalize=False, experiment="PNC_test_experiment",
 # )
 
-trials += generate_trials(
-    "trial_4", _fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
-    gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI&sMRI", degree_normalize=False, experiment="PNC_test_experiment",
-)
+# trials += generate_trials(
+#     "trial_4", _fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+#     gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI&sMRI", degree_normalize=False, experiment="PNC_test_experiment",
+# )
 
+
+# ── Leave-one-out experiments ────────────────────────────────────
+_loo_fcs = ["per_10", "per_20", "per_50"]
+_loo_splits = {
+    "NKI":  ("BHRC_HBN_CCNP_PNC",        "NKItrimmed"),
+    "CCNP": ("NKItrimmed_BHRC_HBN_PNC",  "CCNP"),
+    "HBN":  ("NKItrimmed_BHRC_CCNP_PNC", "HBN"),
+    "BHRC": ("NKItrimmed_HBN_CCNP_PNC",  "BHRC"),
+}
+
+if args.test_set is not None:
+    train_ds, test_ds = _loo_splits[args.test_set]
+    exp = f"LOO_{args.test_set}"
+    trials += generate_trials("trial_1", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        gcn_mode="gcn", modality="fMRI", train_datasets=train_ds, test_datasets=test_ds,
+        save_fc_cache=True, experiment=exp)
+    trials += generate_trials("trial_2", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        gcn_mode="gcn", modality="fMRI&sMRI", train_datasets=train_ds, test_datasets=test_ds,
+        experiment=exp)
+    trials += generate_trials("trial_3", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI", degree_normalize=False,
+        train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
+    trials += generate_trials("trial_4", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI&sMRI", degree_normalize=False,
+        train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
 
 times = defaultdict(list)
 
