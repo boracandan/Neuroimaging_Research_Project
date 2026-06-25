@@ -186,18 +186,19 @@ class GATEdgeLayer(nn.Module):
         self.act   = nn.ELU()
 
     def forward(self, g, h):
-        N = h.shape[0]
-        z = self.W(h).view(N, self.num_heads, self.head_dim)  # [N, H, D]
-        e_src = (z * self.a_src).sum(-1)                       # [N, H]
-        e_dst = (z * self.a_dst).sum(-1)                       # [N, H]
+        # g: [B, N, N], h: [B, N, feat_dim]
+        B, N, _ = h.shape
+        z = self.W(h).view(B, N, self.num_heads, self.head_dim)  # [B, N, H, D]
+        e_src = (z * self.a_src).sum(-1)                          # [B, N, H]
+        e_dst = (z * self.a_dst).sum(-1)                          # [B, N, H]
         e = self.leaky(
-            e_src.unsqueeze(1) + e_dst.unsqueeze(0)            # [N, N, H]  outer sum
-            + g.unsqueeze(-1) * self.edge_w                    # [N, N, H]  FC term
+            e_src.unsqueeze(2) + e_dst.unsqueeze(1)               # [B, N, N, H]
+            + g.unsqueeze(-1) * self.edge_w                        # [B, N, N, H]
         )
         e = e.masked_fill((g == 0).unsqueeze(-1), -1e9)
-        alpha = self.drop(F.softmax(e, dim=1))                 # [N, N, H]
-        out = torch.einsum('ijh,jhd->ihd', alpha, z)           # [N, H, D]
-        return self.act(out.reshape(N, -1))
+        alpha = self.drop(F.softmax(e, dim=2))                    # [B, N, N, H]
+        out = torch.einsum('bijh,bjhd->bihd', alpha, z)           # [B, N, H, D]
+        return self.act(out.reshape(B, N, -1))
 
 
 class MAHGCNGATEdge(nn.Module):
@@ -291,8 +292,9 @@ class VanillaGAT(nn.Module):
         return h
 
     def forward(self, g_matrix, h):
+        # g_matrix: [B, N, N], h: [B, N, feat_dim]
         h = self.forward_gat_layers(g_matrix, h, self.net_gat_layers)
-        return h.mean(dim=0)
+        return h.mean(dim=-2)  # [B, output_dim]
 
 class VanilleGCN(nn.Module):
     def __init__(self, in_dim, out_dim, act, p=0.3, degree_normalize=False, num_layers=1):
@@ -305,16 +307,16 @@ class VanilleGCN(nn.Module):
         self.output_dim = out_dim
 
     def forward(self, g, h):
+        # g: [B, N, N], h: [B, N, feat_dim]
         if self.degree_normalize:
-            deg = g.sum(dim=1).pow(-0.5)
-            D_inv_sqrt = torch.diag(deg)
-            g = D_inv_sqrt @ g @ D_inv_sqrt
+            deg = g.sum(dim=-1).clamp(min=1e-8).pow(-0.5)  # [B, N]
+            g = deg.unsqueeze(-1) * g * deg.unsqueeze(-2)   # [B, N, N]
         for i in range(self.num_layers):
             h = self.drop(h)
-            h = torch.matmul(g, h)
-            h = self.proj[i](h)
+            h = torch.bmm(g, h)   # [B, N, feat_dim]
+            h = self.proj[i](h)   # [B, N, out_dim]
             h = self.act(h)
-        return h.mean(dim=0)   # [N, out_dim] -> [out_dim]
+        return h.mean(dim=-2)     # [B, out_dim]
 
 class AtlasMap(nn.Module):
 
