@@ -52,7 +52,8 @@ config = {
     "lr":               0.001,
     "weight_decay":     1e-4,
     "epochs":           300,
-    "batch_size":       8,
+    "batch_size":       64,
+    "accumulate_steps": 2,
     "roi_scale":       400, # 200 | 300 | 400 | 1000
     "gcn_mode":       "gcn",               # "gcn" | "gat"
     "hidden_dim":      8,
@@ -236,7 +237,7 @@ class RBCDataset(Dataset):
             return (*self.data[idx],), self.ages[idx]
         i = self.indices[idx]
         return (
-            *(torch.from_numpy(_fc_cache[modality][i]) for modality in self.modality.split("&")),
+            *(_fc_cache[modality][i] for modality in self.modality.split("&")),
         ), self.ages[idx]
 
 
@@ -335,7 +336,7 @@ if all(os.path.exists(p) for p in [_cache_subs] + list(_cache_npy.values())):
     print(f"Cache found — loading '{_cache_key}'...")
     _cached_ids     = json.load(open(_cache_subs))
     _fc_cache_index = {sid: i for i, sid in enumerate(_cached_ids)}
-    _fc_cache       = {m: np.load(_cache_npy[m]) for m in _modalities}
+    _fc_cache = {m: torch.from_numpy(np.load(_cache_npy[m])) for m in _modalities}
     print("Cache loaded.")
 elif args.save_fc_cache:
     os.makedirs(_cache_dir, exist_ok=True)
@@ -360,6 +361,7 @@ elif args.save_fc_cache:
         np.save(_cache_npy[m], _fc_cache[m])
     json.dump(all_subs, open(_cache_subs, "w"))
     _fc_cache_index = {sid: i for i, sid in enumerate(all_subs)}
+    _fc_cache = {m: torch.from_numpy(_fc_cache[m]) for m in _modalities}
     print(f"Cache saved to {_cache_dir}")
 
 train_dataset = RBCDataset(train_ids, train_ages, config["modality"])
@@ -368,9 +370,11 @@ val_dataset   = RBCDataset(validation_ids, val_ages,  config["modality"],
 test_dataset  = RBCDataset(test_ids,  test_ages,  config["modality"],
                             smri_mean=train_dataset.smri_mean, smri_std=train_dataset.smri_std)
 
-train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, drop_last=True, pin_memory=True)
-test_loader  = DataLoader(test_dataset,  batch_size=config["batch_size"], pin_memory=True)
-val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], pin_memory=True)
+import platform
+_nw = 0 if platform.system() == "Windows" else 2
+train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, drop_last=True, pin_memory=True, num_workers=_nw, persistent_workers=_nw > 0)
+test_loader  = DataLoader(test_dataset,  batch_size=config["batch_size"], pin_memory=True, num_workers=_nw, persistent_workers=_nw > 0)
+val_loader   = DataLoader(val_dataset,   batch_size=config["batch_size"], pin_memory=True, num_workers=_nw, persistent_workers=_nw > 0)
 
 # Training
 
@@ -408,6 +412,10 @@ model = MyModels.fMRINet(
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=config["weight_decay"])
 model.cuda()
 
+scaler = torch.amp.GradScaler('cuda')
+accumulate_steps = config["accumulate_steps"]
+optimizer.zero_grad(set_to_none=True)
+
 for epoch in range(config["epochs"]):
     # Training
     model.train() 
@@ -418,14 +426,18 @@ for epoch in range(config["epochs"]):
         y = y.cuda(non_blocking=True)
         inputs = [t.cuda(non_blocking=True) for t in inputs]
 
-        output = model(*inputs)  # fMRINet.forward(g_matrix, node_features=None)
+        with torch.amp.autocast('cuda'):
+            output = model(*inputs)  # fMRINet.forward(g_matrix, node_features=None)
+            loss = loss_func(output.squeeze(), y) / accumulate_steps
 
-        loss = loss_func(output.squeeze(), y)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
 
-        epoch_losses.append(loss.detach())
+        if (step + 1) % accumulate_steps == 0 or (step + 1) == len(train_loader):
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+
+        epoch_losses.append(loss.detach() * accumulate_steps)
 
         # print(f'[Epoch {epoch+1}, Batch {step+1}] train loss: {loss.item():.3f}') Batch Level Printing
 
@@ -440,7 +452,8 @@ for epoch in range(config["epochs"]):
         for inputs, y in val_loader:
             inputs = [t.cuda(non_blocking=True) for t in inputs]
 
-            val_output = model(*inputs)
+            with torch.amp.autocast('cuda'):
+                val_output = model(*inputs)
 
             val_preds.extend(val_output.squeeze(-1).cpu().tolist())
             val_true.extend(y.tolist())
@@ -465,7 +478,8 @@ for epoch in range(config["epochs"]):
         with torch.no_grad():
             for inputs, y in train_loader:
                 inputs = [t.cuda(non_blocking=True) for t in inputs]
-                out = model(*inputs)
+                with torch.amp.autocast('cuda'):
+                    out = model(*inputs)
                 train_preds_full.extend(out.squeeze(-1).cpu().tolist())
                 train_true_full.extend(y.tolist())
         np.save(rf"{trial_dir}/best_train_preds.npy", np.array(train_preds_full))
