@@ -14,6 +14,14 @@ import os
 
 from pre_processing_util import pre_process_fMRI, pre_process_sMRI
 
+try:
+    torch.amp.GradScaler
+    _GradScaler = lambda: torch.amp.GradScaler('cuda')
+    _autocast   = lambda: _autocast()
+except AttributeError:
+    _GradScaler = torch.cuda.amp.GradScaler
+    _autocast   = torch.cuda.amp.autocast
+
 print(torch.cuda.get_device_name())
 
 parser = argparse.ArgumentParser(description="MAHGCN Age Regression Training")
@@ -412,7 +420,7 @@ model = MyModels.fMRINet(
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=config["weight_decay"])
 model.cuda()
 
-scaler = torch.amp.GradScaler('cuda')
+scaler = _GradScaler()
 accumulate_steps = config["accumulate_steps"]
 optimizer.zero_grad(set_to_none=True)
 
@@ -426,7 +434,7 @@ for epoch in range(config["epochs"]):
         y = y.cuda(non_blocking=True)
         inputs = [t.cuda(non_blocking=True) for t in inputs]
 
-        with torch.amp.autocast('cuda'):
+        with _autocast():
             output = model(*inputs)  # fMRINet.forward(g_matrix, node_features=None)
             loss = loss_func(output.squeeze(), y) / accumulate_steps
 
@@ -452,7 +460,7 @@ for epoch in range(config["epochs"]):
         for inputs, y in val_loader:
             inputs = [t.cuda(non_blocking=True) for t in inputs]
 
-            with torch.amp.autocast('cuda'):
+            with _autocast():
                 val_output = model(*inputs)
 
             val_preds.extend(val_output.squeeze(-1).cpu().tolist())
@@ -478,7 +486,7 @@ for epoch in range(config["epochs"]):
         with torch.no_grad():
             for inputs, y in train_loader:
                 inputs = [t.cuda(non_blocking=True) for t in inputs]
-                with torch.amp.autocast('cuda'):
+                with _autocast():
                     out = model(*inputs)
                 train_preds_full.extend(out.squeeze(-1).cpu().tolist())
                 train_true_full.extend(y.tolist())
