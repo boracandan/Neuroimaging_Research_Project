@@ -1884,21 +1884,22 @@ if args.test_set is not None:
     train_ds, test_ds = _loo_splits[args.test_set]
     exp = f"LOO_{args.test_set}"
     run_all = args.trial is None
+    _deg_suffix = "" if args.degree_norm else "_nodeg"
 
     if run_all or "gcn_fmri" in args.trial:
-        trials += generate_trials("trial_1", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        trials += generate_trials(f"trial_1{_deg_suffix}", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
             gcn_mode="gcn", modality="fMRI", degree_normalize=args.degree_norm,
             train_datasets=train_ds, test_datasets=test_ds, save_fc_cache=True, experiment=exp)
     if run_all or "gcn_multi" in args.trial:
-        trials += generate_trials("trial_2", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        trials += generate_trials(f"trial_2{_deg_suffix}", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
             gcn_mode="gcn", modality="fMRI&sMRI", degree_normalize=args.degree_norm,
             train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
     if run_all or "gat_fmri" in args.trial:
-        trials += generate_trials("trial_3", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        trials += generate_trials(f"trial_3{_deg_suffix}", _loo_fcs, [32, 64, 128], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
             gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI", degree_normalize=False,
             train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
     if run_all or "gat_multi" in args.trial:
-        trials += generate_trials("trial_4", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
+        trials += generate_trials(f"trial_4{_deg_suffix}", _loo_fcs, [8, 16, 64], [1, 2, 3], [1e-5, 1e-4, 1e-3], [1e-4, 1e-3, 1e-2],
             gcn_mode="gat", num_heads=[1, 2, 4], modality="fMRI&sMRI", degree_normalize=False,
             train_datasets=train_ds, test_datasets=test_ds, experiment=exp)
 
