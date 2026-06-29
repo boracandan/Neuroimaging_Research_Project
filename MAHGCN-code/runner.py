@@ -1874,6 +1874,7 @@ _fcs = ["per_10", "per_20", "per_50"]
 # ── Leave-one-out experiments ────────────────────────────────────
 _loo_fcs = ["per_10", "per_20", "per_50"]
 _loo_splits = {
+    "PNC":  ("NKItrimmed_BHRC_HBN_CCNP", "PNC"),
     "NKI":  ("BHRC_HBN_CCNP_PNC",        "NKItrimmed"),
     "CCNP": ("NKItrimmed_BHRC_HBN_PNC",  "CCNP"),
     "HBN":  ("NKItrimmed_BHRC_CCNP_PNC", "HBN"),
