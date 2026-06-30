@@ -5,7 +5,7 @@ import os
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--test_set", type=str, default=None, choices=["NKI", "CCNP", "HBN", "BHRC"],
+parser.add_argument("--test_set", type=str, default=None, choices=["NKI", "CCNP", "HBN", "BHRC", "PNC"],
                     help="LOO test set to run. Omit to run all trials in the hardcoded list.")
 parser.add_argument("--trial", type=str, nargs="+", default=None, choices=["gcn_fmri", "gcn_multi", "gat_fmri", "gat_multi"],
                     help="Trial type(s) to run. Omit to run all four. E.g. --trial gcn_fmri gcn_multi")
